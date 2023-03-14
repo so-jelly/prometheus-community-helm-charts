@@ -1,0 +1,17 @@
+apiVersion: builtin
+kind: HelmChartInflationGenerator
+metadata:
+  name: prometheus
+releaseName: prometheus
+name: kube-prometheus
+namespace: prometheus
+chartHome: ../../../charts/prod/
+valuesMerge: merge
+# valuesFile: values.yaml
+valuesInline:
+  alertmanager:
+    alertmanagerSpec:
+      replicas: 3
+  prometheus:
+    prometheusSpec:
+      replicas: 3
