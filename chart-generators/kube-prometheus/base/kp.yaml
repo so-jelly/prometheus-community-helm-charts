@@ -1,0 +1,225 @@
+apiVersion: builtin
+kind: HelmChartInflationGenerator
+metadata:
+  name: prometheus
+releaseName: prometheus
+name: kube-prometheus
+namespace: prometheus
+chartHome: ../../../charts/prod/
+valuesMerge: merge
+# valuesFile: values.yaml
+valuesInline:
+  # our common defaults
+  commonLabels:
+    org: myOrg
+  defaultRules:
+    create: false
+    rules:
+      alertmanager: true
+      etcd: false
+      general: false
+      kubeScheduler: false
+    labels: { prometheus: scrape, service: nginx-ingress }
+  global:
+    imageRegistry: "reg/container-artifact-registry-soc"
+    priorityClassName: "high-priority"
+  alertmanager:
+    serviceAccount:
+      create: false
+      name: "thanos-sa"
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    ingress:
+      enabled: true
+      ingressClassName: nginx-internal
+      hosts:
+        - prom.prod-usa-soc.int.example.com
+    nodeSelector: &nodeSelector
+      cloud.google.com/gke-nodepool: nodey-boi
+    service:
+      labels: { prometheus: scrape }
+    alertmanagerSpec:
+      image:
+        repository: reg/container-artifact-registry-soc/alertmanager
+        tag: v0.24.0
+      useExistingSecret: true
+      configSecret: prod-alertmanager
+      replicas: 2
+      routePrefix: /alertmanager/
+      nodeSelector: *nodeSelector
+      resources:
+        requests:
+          cpu: 200m
+          memory: 256Mi
+        limits:
+          cpu: 200m
+          memory: 256Mi
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: alertmanager
+      priorityClassName: high-priority
+  grafana:
+    enabled: false
+    sidecar:
+      dashboards:
+        enabled: false
+  kubeControllerManager:
+    enabled: false
+  coreDns:
+    enabled: false
+  kubelet:
+    serviceMonitor:
+      metricRelabelings:
+        - sourceLabels: [node]
+          action: replace
+          targetLabel: instance
+  kubeScheduler:
+    enabled: false
+  kubeProxy:
+    enabled: false
+  kube-state-metrics:
+    image:
+      repository: reg/container-artifact-registry-soc/kube-state-metrics
+      tag: v2.4.1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    selfMonitor:
+      enabled: true
+  prometheus-node-exporter:
+    image:
+      repository: reg/container-artifact-registry-soc/node-exporter
+      tag: v1.3.1
+    priorityClassName: high-priority
+    podLabels:
+      jobLabel: node-exporter
+    prometheus:
+      monitor:
+        relabelings:
+          - sourceLabels: [__meta_kubernetes_pod_node_name]
+            regex: ^(.*)$
+            targetLabel: kubernetes_node
+            replacement: $1
+            action: replace
+  prometheusOperator:
+    enabled: true
+    serviceAccount:
+      create: false
+      name: "thanos-sa"
+    nodeSelector: *nodeSelector
+    admissionWebhooks:
+      failurePolicy: Fail
+      certManager:
+        enabled: false
+      patch:
+        nodeSelector: *nodeSelector
+        enabled: true
+        image:
+          repository: reg/container-artifact-registry-soc/kube-webhook-certgen
+          tag: v1.1.1
+        priorityClassName: high-priority
+    service:
+      clusterIP: ""
+      labels: { prometheus: scrape }
+      priorityClassName: high-priority
+    priorityClassName: high-priority
+    logLevel: error
+    resources:
+      limits:
+        cpu: 200m
+        memory: 200Mi
+      requests:
+        cpu: 100m
+        memory: 200Mi
+    image:
+      repository: reg/container-artifact-registry-soc/prometheus-operator
+      tag: v0.56.2
+    prometheusConfigReloader:
+      image:
+        repository: reg/container-artifact-registry-soc/prometheus-config-reloader
+        tag: v0.56.2
+    thanosImage:
+      repository: reg/container-artifact-registry-soc/thanos
+      tag: 0.25.2-scratch-r1
+  prometheus:
+    serviceAccount:
+      create: true
+      name: "thanos-sa"
+      annotations:
+        {
+          iam.gke.io/gcp-service-account: svca-thanos-usa-soc-prod@usa-soc-prod-001.iam.gserviceaccount.com,
+        }
+    thanosService:
+      enabled: true
+      clusterIP: ""
+      labels: { prometheus: scrape }
+    service:
+      labels: { prometheus: scrape }
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    ingress:
+      enabled: true
+      labels: { prometheus: scrape, service: nginx-ingress }
+      ingressClassName: "nginx-internal"
+      hosts:
+        - prom.prod-usa-soc.int.example.com
+      paths:
+        - /prometheus
+    prometheusSpec:
+      image:
+        repository: reg/container-artifact-registry-soc/prometheus
+        tag: v2.35.0
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: prometheus
+      replicaExternalLabelName: "replica"
+      nodeSelector: *nodeSelector
+      ruleSelectorNilUsesHelmValues: false
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      probeSelectorNilUsesHelmValues: false
+      walCompression: false
+      replicas: 2
+      routePrefix: /prometheus
+      podMetadata:
+        labels:
+          prometheus: scrape
+      podAntiAffinityTopologyKey: kubernetes.io/hostname
+      resources:
+        requests:
+          cpu: 200m
+          memory: 4Gi
+        limits:
+          cpu: 1
+          memory: 4Gi
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            storageClassName: standard
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 50Gi
+      additionalScrapeConfigsSecret:
+        enabled: true
+        name: additional-scrape-configs
+        key: additional-scrape-configs.yaml
+      priorityClassName: high-priority
+      thanos:
+        objectStorageConfig:
+          key: objstore.yml
+          name: thanos-objstore-config
